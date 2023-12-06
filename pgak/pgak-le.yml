@@ -1,0 +1,174 @@
+version: '3.7'
+
+networks:
+  swarm-net:
+    external: true
+
+volumes:
+  prometheus_data: {}
+  alertmanager: {}
+  grafana_data: {}
+
+services:
+  prometheus:
+    hostname: prometheus
+    image: prom/prometheus:latest
+    networks:
+      - swarm-net
+    ports:
+      - target: 9090
+        published: 9090
+        mode: host        
+    volumes:
+      - /etc/localtime:/etc/localtime:ro
+      - /etc/timezone:/etc/timezone:ro
+      - ./prometheus:/etc/prometheus
+      - prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--storage.tsdb.retention.time=730h'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--web.enable-lifecycle'
+      - '--web.enable-remote-write-receiver'
+    deploy:
+      placement:
+        constraints: [node.role == manager]
+      restart_policy:
+        condition: on-failure
+      labels:
+        - "traefik.enable=true"
+        - "traefik.docker.network=swarm-net"
+        - "traefik.http.routers.prometheus.service=prometheus"
+        - "traefik.http.services.prometheus.loadbalancer.server.port=9090"
+        - "traefik.http.routers.prometheus.rule=Host(`prometheus.${DOMAIN:?DOMAIN variable is not found}`)"
+        - "traefik.http.routers.prometheus.entrypoints=websecure"
+        - "traefik.http.routers.prometheus.tls=true"
+        - "traefik.http.routers.prometheus.tls.certresolver=le"
+        - "traefik.http.routers.prometheus.middlewares=prometheus-auth"
+        - "traefik.http.middlewares.prometheus-auth.basicauth.users=${PROM_AUTH_USER:-admin}:${PROM_AUTH_PASSWD?Variable is not set}"
+
+  grafana:
+    hostname: grafana
+    image: grafana/grafana:latest
+    networks:
+      - swarm-net
+    ports:
+      - "3000:3000"
+    volumes:
+      - /etc/localtime:/etc/localtime:ro
+      - /etc/timezone:/etc/timezone:ro
+      - grafana_data:/var/lib/grafana
+      - ./grafana/provisioning/dashboards:/etc/grafana/provisioning/dashboards
+      - ./grafana/provisioning/datasources:/etc/grafana/provisioning/datasources
+    environment:
+      - GF_SECURITY_ADMIN_USER=${GF_ADMIN_USER:-admin}
+      - GF_SECURITY_ADMIN_PASSWORD=${GF_ADMIN_PASSWORD:?GF_ADMIN_PASSWORD variable is not found}
+      - GF_USERS_ALLOW_SIGN_UP=false
+    deploy:
+      placement:
+        constraints: [node.role == manager]
+      restart_policy:
+        condition: on-failure
+      labels:
+        - "traefik.enable=true"
+        - "traefik.docker.network=swarm-net"
+        - "traefik.http.routers.grafana.service=grafana"
+        - "traefik.http.services.grafana.loadbalancer.server.port=3000"
+        - "traefik.http.routers.grafana.rule=Host(`grafana.${DOMAIN:?DOMAIN variable is not found}`)"
+        - "traefik.http.routers.grafana.entrypoints=websecure"
+        - "traefik.http.routers.grafana.tls=true"
+        - "traefik.http.routers.grafana.tls.certresolver=le"
+
+  alertmanager:
+    hostname: alertmanager
+    image: prom/alertmanager:latest
+    networks:
+      - swarm-net
+    ports:
+      - target: 9093
+        published: 9093
+        mode: host
+    volumes:
+      - /etc/localtime:/etc/localtime:ro
+      - /etc/timezone:/etc/timezone:ro
+      - ./alertmanager:/etc/alertmanager
+      - alertmanager:/alertmanager
+    command:
+      - '--config.file=/etc/alertmanager/config.yml'
+      - '--storage.path=/alertmanager'
+    deploy:
+      placement:
+        constraints: [node.role == manager]
+      restart_policy:
+        condition: on-failure
+      labels:
+        - "traefik.enable=true"
+        - "traefik.docker.network=swarm-net"
+        - "traefik.http.routers.alertmanager.service=alertmanager"
+        - "traefik.http.services.alertmanager.loadbalancer.server.port=9093"
+        - "traefik.http.routers.alertmanager.rule=Host(`alertmanager.${DOMAIN:?DOMAIN variable is not found}`)"
+        - "traefik.http.routers.alertmanager.entrypoints=websecure"
+        - "traefik.http.routers.alertmanager.tls=true"
+        - "traefik.http.routers.alertmanager.tls.certresolver=le"
+        - "traefik.http.routers.alertmanager.middlewares=alertmanager-auth"
+        - "traefik.http.middlewares.alertmanager-auth.basicauth.users=${AM_AUTH_USER:-admin}:${AM_AUTH_PASSWD?Variable is not set}"
+
+  karma:
+    image: lmierzwa/karma:latest
+    networks:
+      - swarm-net
+    environment:
+      - "PORT=8989"
+      - "ALERTMANAGER_URI=http://alertmanager:9093"
+    ports:
+      - target: 8989
+        published: 8989
+        mode: host
+    deploy:
+      placement:
+        constraints: [ node.role == manager ]
+      restart_policy:
+        condition: on-failure        
+      labels:
+        - "traefik.enable=true"
+        - "traefik.docker.network=swarm-net"
+        - "traefik.http.routers.karma.service=karma"
+        - "traefik.http.services.karma.loadbalancer.server.port=8989"
+        - "traefik.http.routers.karma.rule=Host(`karma.${DOMAIN:?DOMAIN variable is not found}`)"
+        - "traefik.http.routers.karma.entrypoints=websecure"
+        - "traefik.http.routers.karma.tls=true"
+        - "traefik.http.routers.karma.tls.certresolver=le"
+        - "traefik.http.routers.karma.middlewares=karma-auth"
+        - "traefik.http.middlewares.karma-auth.basicauth.users=${KARMA_AUTH_USER:-admin}:${KARMA_AUTH_PASSWD?Variable is not set}"
+  
+  node-exporter:
+    image: prom/node-exporter:latest
+    networks:
+      - swarm-net
+    ports:
+      - target: 9100
+        published: 9100
+        mode: host     
+    volumes:
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/rootfs:ro
+      - /etc/hostname:/etc/nodename
+    environment:
+      - NODE_ID={{.Node.ID}}
+
+    command:
+      - '--path.procfs=/host/proc'
+      - '--path.rootfs=/rootfs'
+      - '--path.sysfs=/host/sys'
+      - '--collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)'
+      - '--no-collector.ipvs'
+    deploy:
+      mode: global
+      resources:
+        limits:
+          memory: 128M
+        reservations:
+          memory: 64M

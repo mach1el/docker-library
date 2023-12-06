@@ -1,0 +1,84 @@
+groups:
+
+- name: node_exporter_alerts
+  rules:
+  - alert: Node down
+    expr: up == 0
+    for: 10s
+    labels:
+      severity: critical
+    annotations:
+      summary: Instance {{ $labels.hostname }} is down
+      description: "Failed to scrape {{ $labels.job }} on {{ $labels.instance }} for more than a minute. Node seems down."
+
+  - alert: Node out of memory
+    expr: node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes * 100 < 10
+    for: 30s
+    labels:
+      severity: warning
+    annotations:
+      summary: Instance {{ $labels.hostname }} out of memory
+      description: "Node memory is filling up (< 10% left)\n  VALUE = {{ humanize $value}}%"
+
+  - alert: Node memory under pressure
+    expr: rate(node_vmstat_pgmajfault[1m]) > 1000
+    for: 2m
+    labels:
+      severity: warning
+    annotations:
+      summary: Instance {{ $labels.hostname }} memory under memory pressure
+      description: "Node is under heavy memory pressure. High rate of major page faults\n  VALUE = {{ humanize $value}}%"
+
+  - alert: Node out of disk space
+    expr: (node_filesystem_avail_bytes * 100) / node_filesystem_size_bytes < 10 and ON (instance, device, mountpoint) node_filesystem_readonly == 0
+    for: 2m
+    labels:
+      severity: critical
+    annotations:
+      summary: Instance {{ $labels.hostname }} out of disk space
+      description: "Node disk space is almost full (< 10% left)\n  VALUE = {{ humanize $value}}%"
+
+  - alert: Node high CPU load
+    expr: 100 - (avg by(instance,hostname) (rate(node_cpu_seconds_total{mode="idle"}[1m])) * 100) > 80
+    for: 30s
+    labels:
+      severity: warning
+    annotations:
+      summary: Instance {{ $labels.hostname }} getting high CPU load 
+      description: "Node CPUs are heavy loading\n  VALUE = {{ humanize $value}}%"
+
+  - alert: Node Network Receive Errors
+    expr: rate(node_network_receive_errs_total[2m]) / rate(node_network_receive_packets_total[2m]) > 0.01
+    for: 2m
+    labels:
+      severity: warning
+    annotations:
+      summary: Instance {{ $labels.hostname }} network receive errors
+      description: 'Host {{ $labels.instance }} interface {{ $labels.device }} has encountered {{ printf "%.0f" $value }} receive errors in the last two minutes.'
+
+  - alert: Node Network Transmit Errors
+    expr: rate(node_network_transmit_errs_total[2m]) / rate(node_network_transmit_packets_total[2m]) > 0.01
+    for: 2m
+    labels:
+      severity: warning
+    annotations:
+      summary: Instance {{ $labels.hostname }} network transmit errors
+      description: 'Node {{ $labels.instance }} interface {{ $labels.device }} has encountered {{ printf "%.0f" $value }} transmit errors in the last two minutes.'
+
+  - alert: Node systemd service crashed
+    expr: node_systemd_unit_state{state="failed"} == 1
+    for: 1m
+    labels:
+      severity: warning
+    annotations:
+      summary: Instance {{ $labels.hostname }} getting SystemD service crashed
+      description: "SystemD service crashed"
+
+  - alert: Node Oom kill detected
+    expr: increase(node_vmstat_oom_kill[1m]) > 0
+    for: 0m
+    labels:
+      severity: warning
+    annotations:
+      summary: Instance {{ $labels.hostname }} got OOM kill
+      description: "OOM kill detected\n  VALUE = {{ $value }}"
