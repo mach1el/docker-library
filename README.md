@@ -9,6 +9,11 @@
 ![Postgres](https://img.shields.io/badge/postgres-%23316192.svg?style=for-the-badge&logo=postgresql&logoColor=white)
 ![Rsyslog](https://img.shields.io/badge/rsyslog-000000?style=for-the-badge&logo=rsyslog&logoColor=white)
 ![RTPProxy](https://img.shields.io/badge/-RTPPROXY%20-4285F4?style=for-the-badge&logo=RTPProxy&logoColor=white)
+![Prometheus](https://img.shields.io/badge/Prometheus-E6522C?style=for-the-badge&logo=Prometheus&logoColor=white)
+![Grafana](https://img.shields.io/badge/grafana-%23F46800.svg?style=for-the-badge&logo=grafana&logoColor=white)
+![Alertmanager](https://img.shields.io/badge/Alertmanager-CB2029?style=for-the-badge&logo=Prometheus&logoColor=white)
+![Karma](https://img.shields.io/badge/-Karma-%23Clojure?style=for-the-badge&logo=Karma&logoColor=white)
+![Traefik](https://img.shields.io/badge/Traefik-18BFFF?style=for-the-badge&logo=Traefik&logoColor=white)
 
 ![reposize](https://img.shields.io/github/repo-size/mach1el/docker-library)
 ![commits-activites](https://img.shields.io/github/commit-activity/m/mach1el/docker-library)
