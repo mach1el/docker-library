@@ -1,0 +1,64 @@
+{{ define "__alert_silence_link" -}}
+  {{ .ExternalURL }}/#/silences/new?filter=%7B
+  {{- range .CommonLabels.SortedPairs -}}
+      {{- if ne .Name "alertname" -}}
+          {{- .Name }}%3D"{{- .Value | urlquery -}}"%2C%20
+      {{- end -}}
+  {{- end -}}
+  alertname%3D"{{- .CommonLabels.alertname -}}"%7D
+{{- end }}
+
+{{ define "__alert_severity_prefix_title" -}}
+  {{ if ne .Status "firing" -}}
+  :lgtm:
+  {{- else if eq .CommonLabels.severity "critical" -}}
+  :fire:
+  {{- else if eq .CommonLabels.severity "warning" -}}
+  :warning:
+  {{- else if eq .CommonLabels.severity "info" -}}
+  :information_source:
+  {{- else -}}
+  :question:
+  {{- end }}
+{{- end }}
+
+{{/* Title of the Slack alert */}}
+{{ define "slack.title" -}}
+  [{{ .Status | toUpper }}{{ if eq .Status "firing" }}:{{ .Alerts.Firing | len }}{{ end }}] {{ .CommonLabels.alertname }} for {{ .CommonLabels.job }}
+      {{- if gt (len .CommonLabels) (len .GroupLabels) -}}
+        {{" "}}(
+        {{- with .CommonLabels.Remove .GroupLabels.Names }}
+          {{- range $index, $label := .SortedPairs -}}
+            {{ if $index }}, {{ end }}
+            {{- $label.Name }}="{{ $label.Value -}}"
+          {{- end }}
+        {{- end -}}
+        )
+      {{- end }}
+{{- end }}
+
+{{/* Color of Slack attachment (appears as line next to alert )*/}}
+{{ define "slack.color" -}}
+  {{ if eq .Status "firing" -}}
+      {{ if eq .CommonLabels.severity "warning" -}}
+        warning
+      {{- else if eq .CommonLabels.severity "critical" -}}
+        danger
+      {{- else -}}
+        #439FE0
+      {{- end -}}
+  {{ else -}}
+  good
+  {{- end }}
+{{- end }}
+
+{{/* The text to display in the alert */}}
+{{ define "slack.text" -}}
+  {{ range .Alerts -}}
+  *Alert:* {{ .Annotations.title }}{{ if .Labels.severity }} - `{{ .Labels.severity }}`{{ end }}
+  *Description:* {{ .Annotations.description }}
+  *Details:*
+    {{ range .Labels.SortedPairs }} • *{{ .Name }}:* `{{ .Value }}`
+    {{ end }}
+  {{ end }}
+{{- end }}

@@ -1,0 +1,30 @@
+global:
+  resolve_timeout: 1m
+  # slack_api_url: 'https://hooks.slack.com/services/(( API ))'
+
+route:
+  group_by: ['instance','product','env','level']
+  group_wait: 1s
+  group_interval: 3s
+  repeat_interval: 1h
+  receiver: 'default'
+  
+  routes:
+  - match:
+      env: test
+    receiver: 'my-alerts'
+
+receivers:
+- name: 'default'
+
+- name: 'my-alerts'
+  slack_configs:
+  - channel: '(( channel ))'
+    color: '{{ template "slack.color" . }}'
+    title: '{{ template "slack.title" . }}'
+    text: '{{ template "slack.text" . }}'
+    send_resolved: true
+    icon_url: https://avatars3.githubusercontent.com/u/3380462
+    api_url: 'https://hooks.slack.com/services/(( API ))'
+
+templates: ['/etc/alertmanager/*.tmpl']
