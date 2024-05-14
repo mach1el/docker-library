@@ -1,0 +1,67 @@
+#!/bin/bash
+
+set -m
+
+check_runtime() {
+  java -version
+  if [[ $? -ne 0 ]]; then
+    echo "[$(date '+%d/%m/%Y %H:%M:%S')][ERROR] Missing java"
+    exit "500"
+  fi
+}
+
+modify_listeners() {
+  if [ -n "$KAFKA_LISTENERS" ]; then
+    echo "[$(date '+%d/%m/%Y %H:%M:%S')][INFO] Setting Kafka listeners to $KAFKA_LISTENERS"
+    sed -i '/^#.*listeners=PLAINTEXT:\/\/:9092/s/^#//' $KAFKA_CONF/server.properties
+    sed -i "s~listeners=PLAINTEXT://:9092~listeners=$KAFKA_LISTENERS~" $KAFKA_CONF/server.properties
+  fi
+
+  if [ -n "$KAFKA_ADVERTISED_LISTENERS" ]; then
+    echo "[$(date '+%d/%m/%Y %H:%M:%S')][INFO] Setting Kafka advertised.listeners to $KAFKA_ADVERTISED_LISTENERS"
+    sed -i '/^#.*advertised.listeners=PLAINTEXT:\/\/your.host.name:9092/s/^#//' $KAFKA_CONF/server.properties
+    sed -i "s~advertised.listeners=PLAINTEXT:\/\/your.host.name:9092~advertised.listeners=$KAFKA_ADVERTISED_LISTENERS~" $KAFKA_CONF/server.properties
+  fi
+
+  if [ -n "$KAFKA_ZOOKEEPER_CONNECT" ]; then
+    echo "[$(date '+%d/%m/%Y %H:%M:%S')][INFO] Setting Kafka zookeeper.connect to $KAFKA_ZOOKEEPER_CONNECT"
+    sed -i "s/zookeeper.connect=localhost:2181/zookeeper.connect=$KAFKA_ZOOKEEPER_CONNECT/g" $KAFKA_CONF/server.properties
+  fi
+}
+
+start_server() {
+  check_runtime
+  modify_listeners
+  
+  if [[ -n "$KAFKA_HEAP_OPTS" ]]; then
+    export JAVA_TOOL_OPTIONS="${JAVA_TOOL_OPTIONS} ${KAFKA_HEAP_OPTS}"
+  fi
+  
+  echo "[$(date '+%d/%m/%Y %H:%M:%S')][INFO] Modify the Kafka log path to $KAFKA_DATA/kafka-logs"
+  sed -i "s|log.dirs=.*|log.dirs=${KAFKA_DATA}/kafka-logs|" "$KAFKA_CONF/server.properties"
+  
+  if [[ ! -f "$KAFKA_DATA/kafka-logs/meta.properties" ]]; then
+    echo ">>> Format Log Directories <<<"
+    if [[ -z "$KAFKA_CLUSTER_ID" ]]; then
+      echo "[$(date '+%d/%m/%Y %H:%M:%S')][INFO] Generate a Cluster UUID"
+      if [[ "$(id -u)" == "0" ]]; then
+        export KAFKA_CLUSTER_ID="$(${KAFKA_BIN}/kafka-storage.sh random-uuid)"
+      else
+        su -l mich43l -c 'export KAFKA_CLUSTER_ID="$(${KAFKA_BIN}/kafka-storage.sh random-uuid)"'
+      fi
+    fi
+    echo "[$(date '+%d/%m/%Y %H:%M:%S')][INFO] Set the new Cluster UUID"
+    if [[ "$(id -u)" == "0" ]]; then
+      su -l mich43l -c '${KAFKA_BIN}/kafka-storage.sh format -t ${KAFKA_CLUSTER_ID} -c ${KAFKA_CONF}/server.properties'
+    else
+      ${KAFKA_BIN}/kafka-storage.sh format -t $KAFKA_CLUSTER_ID -c "$KAFKA_CONF/server.properties"
+    fi
+  else
+    echo "[$(date '+%d/%m/%Y %H:%M:%S')][INFO] Remove the old meta.properties"
+    rm -rf "$KAFKA_DATA/kafka-logs/meta.properties"
+  fi
+  
+  exec gosu mich43l bash -l -c '${KAFKA_BIN}/kafka-server-start.sh ${KAFKA_CONF}/server.properties'
+}
+
+start_server

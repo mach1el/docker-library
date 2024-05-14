@@ -14,6 +14,7 @@
 ![Alertmanager](https://img.shields.io/badge/Alertmanager-CB2029?style=for-the-badge&logo=Prometheus&logoColor=white)
 ![Karma](https://img.shields.io/badge/-Karma-%23Clojure?style=for-the-badge&logo=Karma&logoColor=white)
 ![Traefik](https://img.shields.io/badge/Traefik-18BFFF?style=for-the-badge&logo=Traefik&logoColor=white)
+![Apache Kafka](https://img.shields.io/badge/Apache%20Kafka-000?style=for-the-badge&logo=apachekafka)
 
 ![reposize](https://img.shields.io/github/repo-size/mach1el/docker-library)
 ![commits-activites](https://img.shields.io/github/commit-activity/m/mach1el/docker-library)
