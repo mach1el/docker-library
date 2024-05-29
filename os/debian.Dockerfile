@@ -1,4 +1,6 @@
-FROM debian:latest
+ARG VERSION=latest
+
+FROM debian:${VERSION}
 
 LABEL architecture="x86_64"                 \
       build-date="$BUILD_DATE"              \
