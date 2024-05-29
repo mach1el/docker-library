@@ -21,4 +21,4 @@ elif [ ! -z "${ACTIVEMQ_WEBADMIN_PASSWORD}" ]; then
   sed -i "s/admin.*/admin: "${ACTIVEMQ_WEBADMIN_PASSWORD}", admin/g" conf/jetty-realm.properties
 fi
 
-bin/activemq console
+exec gosu mich43l bash -l -c 'bin/activemq console'

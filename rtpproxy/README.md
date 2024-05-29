@@ -13,7 +13,7 @@ RTPproxy server for streaming RTP on SIP proxy/server such as: [Opensips](https:
 ## Build arguments
 |     ARG       |               VALUE                              |
 |:-------------:|:------------------------------------------------:|
-| GOSU_VERSION  | Choose gosu version to install. Default: `1.16`  |
+| GOSU_VERSION  | Choose gosu version to install. Default: `1.17`  |
 
 
 ## Environment variables

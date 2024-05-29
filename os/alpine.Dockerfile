@@ -8,11 +8,11 @@ LABEL architecture="x86_64"                 \
       vcs-type="git"                        \
       vcs-url="https://github.com/mach1el/docker-library"
 
-ARG GOSU_VERSION=1.16
+ARG GOSU_VERSION=1.17
 
 ENV GOSU_VERSION $GOSU_VERSION
 ENV USERNAME     mich43l
-ENV USER_UID     1001
+ENV USER_UID     1000
 ENV USER_GID     $USER_UID
 ENV USER_HOME    /home/mich43l
 
