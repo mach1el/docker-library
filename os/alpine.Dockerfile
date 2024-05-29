@@ -1,4 +1,6 @@
-FROM alpine:latest
+ARG VERSION=latest
+
+FROM alpine:${VERSION}
 
 LABEL architecture="x86_64"                 \
       build-date="$BUILD_DATE"              \
