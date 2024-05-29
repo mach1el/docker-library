@@ -8,13 +8,15 @@ LABEL architecture="x86_64"                 \
       vcs-type="git"                        \
       vcs-url="https://github.com/mach1el/docker-library"
 
-ARG GOSU_VERSION=1.16
+ARG GOSU_VERSION=1.17
 
-ENV GOSU_VERSION $GOSU_VERSION
-ENV USERNAME     mich43l
-ENV USER_UID     1001
-ENV USER_GID     $USER_UID
-ENV USER_HOME    /home/mich43l
+ENV DEBIAN_FRONTEND noninteractive
+
+ENV GOSU_VERSION    $GOSU_VERSION
+ENV USERNAME        mich43l
+ENV USER_UID        1000
+ENV USER_GID        $USER_UID
+ENV USER_HOME       /home/mich43l
 
 RUN set -eux; \
   groupadd -r mich43l --gid=$USER_GID; \
@@ -55,7 +57,7 @@ RUN set -x \
   && gosu nobody true
 
 RUN sh -c "$(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)"
-RUN sed -i "s|ZSH_THEME=\"robbyrussell\"|ZSH_THEME=\"agnoster\"|g" ~/.zshrc
+# RUN sed -i "s|ZSH_THEME=\"robbyrussell\"|ZSH_THEME=\"agnoster\"|g" ~/.zshrc
 
 COPY docker-entrypoint.sh /docker-entrypoint.sh
 RUN chmod +x /docker-entrypoint.sh

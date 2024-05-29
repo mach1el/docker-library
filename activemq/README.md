@@ -1,12 +1,20 @@
 # ActiveMQ on container
 ![Docker](https://img.shields.io/badge/docker-%230db7ed.svg?style=for-the-badge&logo=docker&logoColor=white)
+![Alpine Linux](https://img.shields.io/badge/Alpine_Linux-%230D597F.svg?style=for-the-badge&logo=alpine-linux&logoColor=white)
+![Java](https://img.shields.io/badge/amazon-corretto-%23FF0000.svg?style=for-the-badge&logo=java&logoColor=white)
 ![ActiveMQ](https://img.shields.io/badge/active-mq-%23B7178C.svg?style=for-the-badge&logo=activemq&logoColor=white)
 
-Base on `openjdk:bullseye` from [OpenJDK](https://hub.docker.com/_/openjdk) 
+Base on Alpine OS `mich43l/os:alpine` from [mich43l](https://hub.docker.com/r/mich43l/os). This image implemented [Java Corretto](https://aws.amazon.com/corretto/?filtered-posts.sort-by=item.additionalFields.createdDate&filtered-posts.sort-order=desc) for the Java binary. The 5.x.x version is using Java 11 and for 6.x.x version it will using Java 17. 
+
+## Supported tags
+-	`v5.18.3`
+- `v5.18.4`
+- `v6.1.2`
+- [More Tags](https://hub.docker.com/r/mich43l/activemq/tags)
 
 ## Build 
 ```
-docker buildx build --platform linux/amd64 --build-arg VERSION=5.18.3 -t activemq .
+docker buildx build --platform linux/amd64 --build-arg VERSION=5.18.3 -t activemq -f 5.18.x/Dockerfile .
 ```
 
 ## Usage
@@ -26,15 +34,6 @@ docker run -tid \
   -e ACTIVEMQ_WEBADMIN_USERNAME=rootmq \
   -e ACTIVEMQ_WEBADMIN_PASSWORD=toormq \
   mich43l/activemq
-```
-
-## Image tags
-```
-mich43l/activemq:latest (5.18.3)
-mich43l/activemq:5.18.3
-mich43l/activemq:5.18.1
-mich43l/acitvemq:5.16.7
-mich43l/activemq:5.16.6
 ```
 
 ## Variables

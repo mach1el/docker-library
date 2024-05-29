@@ -1,9 +1,17 @@
 FROM debian:bullseye
 
+LABEL architecture="x86_64"             \
+  build-date="$BUILD_DATE"              \
+  license="MIT"                         \
+  name="mich43l/postgresql"             \
+  summary="Postgresql containerization" \
+  vcs-type="git"                        \
+  vcs-url="https://github.com/mach1el/docker-library"
+
 ARG CC=en_US
 ARG ENCODING=UTF-8
 ARG LANG=en_US.UTF-8
-ARG GOSU_VERSION=1.16
+ARG GOSU_VERSION=1.17
 ARG PGSQL_VERSION=15
 
 ENV CC $CC

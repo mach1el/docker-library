@@ -8,7 +8,7 @@ LABEL architecture="x86_64"                               \
       vcs-type="git"                                      \
       vcs-url="https://github.com/mach1el/docker-library"
 
-ARG GOSU_VERSION=1.16
+ARG GOSU_VERSION=1.17
 
 ENV GOSU_VERSION $GOSU_VERSION
 ENV RTPPROXY_BIN /usr/bin/rtpproxy
