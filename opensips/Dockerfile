@@ -1,6 +1,8 @@
 FROM mich43l/os:debian
 
-ENV OPENSIPS_CFG /etc/opensips/opensips.cfg
+ARG OPENSIPS_VERSION=3.4
+
+ENV OPENSIPS_CFG=/etc/opensips/opensips.cfg
 
 RUN apt-get update -qq && \
     apt-get install -y --no-install-recommends \
@@ -15,16 +17,15 @@ RUN apt-get update -qq && \
     libsystemd-dev \
     && rm -rf /var/lib/apt/lists
 
-RUN apt-key adv --keyserver keyserver.ubuntu.com --recv-keys 049AD65B
-RUN echo "deb https://apt.opensips.org bullseye 3.2-releases" >/etc/apt/sources.list.d/opensips.list
-RUN echo "deb https://apt.opensips.org bullseye cli-nightly" >/etc/apt/sources.list.d/opensips-cli.list
+RUN curl https://apt.opensips.org/opensips-org.gpg -o /usr/share/keyrings/opensips-org.gpg
+RUN echo "deb [signed-by=/usr/share/keyrings/opensips-org.gpg] https://apt.opensips.org bookworm ${OPENSIPS_VERSION}-releases" >/etc/apt/sources.list.d/opensips.list
+RUN echo "deb [signed-by=/usr/share/keyrings/opensips-org.gpg] https://apt.opensips.org bookworm cli-nightly" >/etc/apt/sources.list.d/opensips-cli.list
 
 RUN apt-get update -qq && \
     apt-get install -yqq \
     net-tools \
     sngrep \
     opensips                     \
-    opensips-b2bua-module        \
     opensips-berkeley-module     \
     opensips-carrierroute-module \
     opensips-cgrates-module      \
@@ -75,7 +76,7 @@ VOLUME ["/etc/opensips"]
 VOLUME ["/tmp"]
 
 EXPOSE 5060/udp
-EXPOSE 8989/tcp
 
-ADD units /
-RUN chmod +x /etc/service/*/*
+ADD units/etc/service /etc/service
+ADD units/etc/opensips /etc/opensips
+RUN chmod +x /etc/service/opensips/run

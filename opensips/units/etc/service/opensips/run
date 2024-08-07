@@ -2,4 +2,4 @@
 set -m
 OPENSIPS_S_MEMORY=${OPENSIPS_S_MEMORY:-1024}
 OPENSIPS_P_MEMORY=${OPENSIPS_P_MEMORY:-1024}
-exec /usr/sbin/opensips -FEdddddddddd -m $OPENSIPS_S_MEMORY -M $OPENSIPS_P_MEMORY -f ${OPENSIPS_CFG}
+exec /usr/sbin/opensips -Fdddddddddd -m $OPENSIPS_S_MEMORY -M $OPENSIPS_P_MEMORY -f ${OPENSIPS_CFG}
