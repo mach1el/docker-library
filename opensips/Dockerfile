@@ -3,6 +3,11 @@ FROM mich43l/os:debian
 ARG OPENSIPS_VERSION=3.4
 
 ENV OPENSIPS_CFG=/etc/opensips/opensips.cfg
+ENV APACHE_LOG_DIR=/var/log/apache2
+ENV APACHE_RUN_DIR=/var/run/apache2
+ENV APACHE_PID_FILE=/var/run/apache2/apache2.pid
+ENV APACHE_RUN_USER=www-data
+ENV APACHE_RUN_GROUP=www-data
 
 RUN apt-get update -qq && \
     apt-get install -y --no-install-recommends \
@@ -15,6 +20,16 @@ RUN apt-get update -qq && \
     libbcg729-0 \
     libsndfile1 \
     libsystemd-dev \
+    apache2 \
+    libapache2-mod-php \
+    php-curl \
+    php \
+    php-mysql \
+    php-gd \
+    php-pear \
+    php-cli \
+    php-apcu \
+    php-pgsql \
     && rm -rf /var/lib/apt/lists
 
 RUN curl https://apt.opensips.org/opensips-org.gpg -o /usr/share/keyrings/opensips-org.gpg
@@ -70,13 +85,31 @@ RUN apt-get update -qq && \
     opensips-python-module       \
     && rm -rf /var/lib/apt/lists/*
 
+
+RUN git clone --branch=9.3.4 https://github.com/OpenSIPS/opensips-cp.git /var/www/html/opensips-cp
+RUN chown -R www-data:www-data /var/www/html/opensips-cp/
+
+COPY units/etc/apache2/apache2.conf /etc/apache2
+COPY units/etc/apache2/sites-available /etc/apache2/sites-available
+
+RUN rm -rf /etc/apache2/sites-available/default-ssl.conf
+
+RUN a2dissite 000-default.conf
+RUN a2ensite opensips-cp.conf
+RUN a2dismod ssl
+
 RUN ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && echo $TZ > /etc/timezone
 
 VOLUME ["/etc/opensips"]
+VOLUME ["/etc/apache2/"]
+VOLUME ["/var/www/html/opensips-cp"]
 VOLUME ["/tmp"]
 
+EXPOSE 80/tcp
 EXPOSE 5060/udp
 
 ADD units/etc/service /etc/service
 ADD units/etc/opensips /etc/opensips
+
+RUN chmod +x /etc/service/apache2/run
 RUN chmod +x /etc/service/opensips/run

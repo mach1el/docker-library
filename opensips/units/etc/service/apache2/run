@@ -1,0 +1,65 @@
+#!/bin/bash
+
+set -m
+#rm -f /run/apache2/apache2.pid
+
+modify_db_parameter() {
+  if [ -z "$OPENSIPS_CP_DB_DRIVER" ]; then
+    echo "[$(date '+%d/%m/%Y %H:%M:%S')][WARNING] OpenSips CP database driver is not set or is empty. Default to 'psql'"
+    OPENSIPS_CP_DB_DRIVER="psql"
+  else
+    echo "[$(date '+%d/%m/%Y %H:%M:%S')][INFO] Setting OpenSips CP database driver to $OPENSIPS_CP_DB_DRIVER"
+  fi
+
+  if [ -z "$OPENSIPS_CP_DB_HOST" ]; then
+    echo "[$(date '+%d/%m/%Y %H:%M:%S')][WARNING] OpenSips CP database host is not set or is empty. Default to 'localhost'"
+    OPENSIPS_CP_DB_HOST="localhost"
+  else
+    echo "[$(date '+%d/%m/%Y %H:%M:%S')][INFO] Setting OpenSips CP database host to $OPENSIPS_CP_DB_HOST"
+  fi
+
+  if [ -z "$OPENSIPS_CP_DB_PORT" ]; then
+    echo "[$(date '+%d/%m/%Y %H:%M:%S')][WARNING] OpenSips CP database port is not set or is empty. Default to '5432'"
+    OPENSIPS_CP_DB_PORT="5432"
+  else
+    echo "[$(date '+%d/%m/%Y %H:%M:%S')][INFO] Setting OpenSips CP database port to $OPENSIPS_CP_DB_PORT"
+  fi
+
+  if [ -z "$OPENSIPS_CP_DB_USER" ]; then
+    echo "[$(date '+%d/%m/%Y %H:%M:%S')][WARNING] OpenSips CP database user is not set or is empty. Default to 'opensips'"
+    OPENSIPS_CP_DB_USER="opensips"
+  else
+    echo "[$(date '+%d/%m/%Y %H:%M:%S')][INFO] Setting OpenSips CP database user to $OPENSIPS_CP_DB_USER"
+  fi
+
+  if [ -z "$OPENSIPS_CP_DB_PASSWORD" ]; then
+    echo "[$(date '+%d/%m/%Y %H:%M:%S')][WARNING] OpenSips CP database password is not set or is empty. Default to 'opensipsrw'"
+    OPENSIPS_CP_DB_PASSWORD="opensipsrw"
+  else
+    echo "[$(date '+%d/%m/%Y %H:%M:%S')][INFO] Setting OpenSips CP database password to $OPENSIPS_CP_DB_PASSWORD"
+  fi
+
+  if [ -z "$OPENSIPS_CP_DB_NAME" ]; then
+    echo "[$(date '+%d/%m/%Y %H:%M:%S')][WARNING] OpenSips CP database name is not set or is empty. Default to 'opensips'"
+    OPENSIPS_CP_DB_NAME="opensips"
+  else
+    echo "[$(date '+%d/%m/%Y %H:%M:%S')][INFO] Setting OpenSips CP database name to $OPENSIPS_CP_DB_NAME"
+  fi
+
+  php_file="/var/www/html/opensips-cp/config/db.inc.php"
+
+  sed -i "s/\(\$config->db_driver\s*=\s*\)\"[^\"]*\"/\1\"$OPENSIPS_CP_DB_DRIVER\"/" "$php_file"
+  sed -i "s/\(\$config->db_host\s*=\s*\)\"[^\"]*\"/\1\"$OPENSIPS_CP_DB_HOST\"/" "$php_file"
+  sed -i "s/\(\$config->db_user\s*=\s*\)\"[^\"]*\"/\1\"$OPENSIPS_CP_DB_USER\"/" "$php_file"
+  sed -i "s/\(\$config->db_password\s*=\s*\)\"[^\"]*\"/\1\"$OPENSIPS_CP_DB_PASSWORD\"/" "$php_file"
+  sed -i "s/\(\$config->db_name\s*=\s*\)\"[^\"]*\"/\1\"$OPENSIPS_CP_DB_NAME\"/" "$php_file"
+
+  echo "[$(date '+%d/%m/%Y %H:%M:%S')][INFO] Updated the configuration in $php_file"
+}
+
+start_intance() {
+  modify_db_parameter
+  exec /usr/sbin/apache2 -D FOREGROUND
+}
+
+start_intance
