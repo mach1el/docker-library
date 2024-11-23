@@ -12,22 +12,21 @@ LABEL architecture="x86_64"                 \
 
 ARG GOSU_VERSION=1.17
 
-ENV DEBIAN_FRONTEND noninteractive
-
-ENV GOSU_VERSION    $GOSU_VERSION
-ENV USERNAME        mich43l
-ENV USER_UID        1000
-ENV USER_GID        $USER_UID
-ENV USER_HOME       /home/mich43l
+ENV DEBIAN_FRONTEND=noninteractive \
+  GOSU_VERSION=${GOSU_VERSION} \
+  USERNAME=mich43l \
+  USER_UID=1000 \
+  USER_GID=1000 \
+  USER_HOME=/home/mich43l
 
 RUN set -eux; \
-  groupadd -r mich43l --gid=$USER_GID; \
-  useradd -r -g mich43l --uid=$USER_UID --home-dir=/home/mich43l --shell=/bin/bash mich43l; \
-  mkdir -p /home/mich43l; \
-  chown -R mich43l:mich43l /home/mich43l
+  groupadd -r ${USERNAME} --gid=${USER_GID}; \
+  useradd -r -g ${USERNAME} --uid=${USER_UID} --home-dir=${USER_HOME} --shell=/bin/zsh ${USERNAME}; \
+  mkdir -p ${USER_HOME}; \
+  chown -R ${USERNAME}:${USERNAME} ${USER_HOME}
 
 RUN apt-get update \
-  && apt-get -yqq install \
+  && apt-get -yqq install --no-install-recommends \
   ca-certificates \
   gnupg2 \
   xz-utils \
@@ -44,6 +43,9 @@ RUN apt-get update \
   gzip \
   zsh \
   unzip \
+  net-tools \
+  locales \
+  locales-all \
   && rm -rf /var/lib/apt/lists/*
 
 RUN set -x \
@@ -58,8 +60,10 @@ RUN set -x \
   && chmod +x /usr/local/bin/gosu \
   && gosu nobody true
 
-RUN sh -c "$(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)"
-# RUN sed -i "s|ZSH_THEME=\"robbyrussell\"|ZSH_THEME=\"agnoster\"|g" ~/.zshrc
+RUN set -x \
+  && update-locale \
+  && sh -c "$(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)" \
+  && sed -i "s|ZSH_THEME=\"robbyrussell\"|ZSH_THEME=\"agnoster\"|g" ~/.zshrc
 
 COPY docker-entrypoint.sh /docker-entrypoint.sh
 RUN chmod +x /docker-entrypoint.sh

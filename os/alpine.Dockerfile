@@ -12,11 +12,11 @@ LABEL architecture="x86_64"                 \
 
 ARG GOSU_VERSION=1.17
 
-ENV GOSU_VERSION $GOSU_VERSION
-ENV USERNAME     mich43l
-ENV USER_UID     1000
-ENV USER_GID     $USER_UID
-ENV USER_HOME    /home/mich43l
+ENV GOSU_VERSION=$GOSU_VERSION \
+  USERNAME=mich43l \
+  USER_UID=1000 \
+  USER_GID=$USER_UID \
+  USER_HOME=/home/mich43l
 
 RUN set -eux; \
   addgroup -S -g $USER_GID $USERNAME && \
