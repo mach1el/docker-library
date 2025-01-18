@@ -1,4 +1,4 @@
-FROM mich43l/os:alpine
+FROM mich43l/alpine
 
 LABEL architecture="x86_64"                        \
       build-date="$BUILD_DATE"                     \

@@ -1,4 +1,4 @@
-FROM mich43l/os:alpine
+FROM mich43l/alpine
 
 ARG version=8.412.08.1
 ARG kafka_version=2.8.2

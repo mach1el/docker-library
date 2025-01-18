@@ -15,12 +15,12 @@ ARG GOSU_VERSION=1.17
 ENV GOSU_VERSION=$GOSU_VERSION \
   USERNAME=mich43l \
   USER_UID=1000 \
-  USER_GID=$USER_UID \
+  USER_GID=1000 \
   USER_HOME=/home/mich43l
 
 RUN set -eux; \
-  addgroup -S -g $USER_GID $USERNAME && \
-  adduser -S -D -u $USER_UID -s /bin/sh -h $USER_HOME -G $USERNAME $USERNAME
+  addgroup -S -g "$USER_GID" "$USERNAME"; \
+  adduser -S -D -u "$USER_UID" -s /bin/sh -h "$USER_HOME" -G "$USERNAME" "$USERNAME"
 
 RUN set -eux; \
   apk add --no-cache \
