@@ -17,7 +17,45 @@
 ![reposize](https://img.shields.io/github/repo-size/mach1el/docker-library)
 ![commits-activites](https://img.shields.io/github/commit-activity/m/mach1el/docker-library)
 
-Applications containerization
+This repository houses a collection of custom Docker images.  These images are built and published to Docker Hub, providing ready-to-use solutions for various needs.
+
+## About
+
+This repository serves as the central location for managing and building all custom Docker images used in my projects.  It streamlines the process of creating, updating, and publishing these images.
+
+## Repository Structure
+
+The repository is organized by service, with each service having its own directory.  Within each service directory, you'll find:
+
+* **`Dockerfile`:** The Dockerfile used to build the image.  Multiple versions of a service might have separate Dockerfiles (e.g., `activemq/5.18.x/Dockerfile`, `activemq/6.1.x/Dockerfile`).
+* **`README.md`:** A service-specific README with instructions on how to use the image.
+* **`units/`:** Contains configuration files and service scripts used within the container.  Often, you'll find a `units/etc/service/<service_name>/run` script for starting the service.
+* **Other files:**  May include configuration files (e.g., `*.yml`, `*.conf`), scripts (`*.sh`), or other resources required by the Docker image.
+
+## Available Images
+
+The following Docker images are available:
+
+* **`debian` ([https://hub.docker.com/r/mich43l/debian](https://hub.docker.com/r/mich43l/debian))::** This image provides a minimal Debian Bookworm base for other Docker images. It's designed to be lightweight and secure, offering a stable foundation for building custom applications.  It includes essential utilities and tools commonly needed in a Debian environment.
+* **`alpine` ([https://hub.docker.com/r/mich43l/alpine](https://hub.docker.com/r/mich43l/alpine)):** This image provides a minimal Alpine Linux base. Alpine Linux is known for its small size and security focus, making it ideal for creating very efficient Docker images.
+
+## Building and Publishing Images
+
+```bash
+#!/bin/bash
+
+IMAGE_NAME=$1  # e.g., debian
+VERSION=$2     # e.g., latest, 1.0.0
+
+docker build -t mich43l/$IMAGE_NAME:$VERSION images/$IMAGE_NAME
+docker push mich43l/$IMAGE_NAME:$VERSION
+```
+
+## Usage
+General instructions on how to use the images.  Point users to the individual service READMEs for specific instructions.
+
+## Contributing
+Guidelines for contributing to the repository.
 
 # Docker hub
 [![Static Badge](https://img.shields.io/badge/dockerhub-mich43l-orange?style=flat-square)](https://hub.docker.com/u/mich43l)
