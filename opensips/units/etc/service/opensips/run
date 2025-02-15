@@ -1,7 +1,4 @@
 #!/bin/bash
 set -m
 
-OPENSIPS_S_MEMORY=${OPENSIPS_S_MEMORY:-1024}
-OPENSIPS_P_MEMORY=${OPENSIPS_P_MEMORY:-1024}
-
 /usr/sbin/opensips -f ${OPENSIPS_CFG} -F
