@@ -6,7 +6,7 @@ set -m  # Enable job control
 configure_opensips_cp() {
   echo "Configuring OpenSIPS Control Panel ..."
   # sed -i "s/localhost/${PG_HOST}/g" /var/www/html/opensips-cp/config/db.inc.php
-  sed -i "s/127.0.0.1:8888/${OPENSIPS_IP}:8989/g" /var/www/html/opensips-cp/config/db_schema.pgsql
+  sed -i -E "s/json:[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+:[0-9]+/json:${OPENSIPS_IP}:8989/g" /var/www/html/opensips-cp/config/db_schema.pgsql
 
   # Check if the table exists in PostgreSQL
   if ! PGPASSWORD="${PG_PASSWORD}" psql -h "${PG_HOST}" -U "${PG_USER}" -d "${PG_DATABASE}" -tAc "SELECT to_regclass('public.ocp_admin_privileges');" | grep -q "ocp_admin_privileges"; then
