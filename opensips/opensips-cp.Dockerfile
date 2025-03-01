@@ -6,7 +6,8 @@ ENV APACHE_LOG_DIR=/var/log/apache2 \
   APACHE_RUN_DIR=/var/run/apache2 \
   APACHE_PID_FILE=/var/run/apache2/apache2.pid \
   APACHE_RUN_USER=www-data \
-  APACHE_RUN_GROUP=www-data
+  APACHE_RUN_GROUP=www-data \
+  OPENSIPS_CP_INSTALL_DIR=/var/www/html/opensips-cp
 
 RUN apt-get update -qq && \
   apt-get install -y --no-install-recommends \
@@ -32,8 +33,10 @@ RUN apt-get update -qq && \
   php-pgsql \
   && rm -rf /var/lib/apt/lists
 
-RUN git clone --branch=$OPENSIPS_CP_VER https://github.com/OpenSIPS/opensips-cp.git /var/www/html/opensips-cp
-RUN chown -R www-data:www-data /var/www/html/opensips-cp/
+RUN git clone --branch=$OPENSIPS_CP_VER https://github.com/OpenSIPS/opensips-cp.git $OPENSIPS_CP_INSTALL_DIR
+RUN chown -R www-data:www-data $OPENSIPS_CP_INSTALL_DIR/
+COPY units/modules.inc.php $OPENSIPS_CP_INSTALL_DIR/config/modules.inc.php
+COPY units/cdrviewer.settings.inc.php $OPENSIPS_CP_INSTALL_DIR/config/tools/system/cdrviewer/settings.inc.php
 
 COPY units/etc/apache2/apache2.conf /etc/apache2
 COPY units/etc/apache2/sites-available /etc/apache2/sites-available
@@ -48,7 +51,7 @@ RUN ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && echo $TZ > /etc/timezone
 
 VOLUME ["/etc/opensips"]
 VOLUME ["/etc/apache2/"]
-VOLUME ["/var/www/html/opensips-cp"]
+VOLUME ["$OPENSIPS_CP_INSTALL_DIR"]
 
 EXPOSE 80/tcp
 
