@@ -179,3 +179,247 @@ This project is licensed under the MIT License.
 
 # Contributing
 Contributions are welcome!  Please submit pull requests for any improvements or bug fixes.
+
+# Dialplan Routing Logic
+
+This note explains how inbound INVITEs are routed using the **OpenSIPS dialplan** in this stack. It focuses on what the dialplan rules must return, how they’re parsed, and the exact points where routing decisions are taken. Examples and operational tips are included at the end.
+
+> TL;DR: We use `dp_translate(1, ...)` to decide *where* to send a call based on the called user (DID). Rules may return either **attrs** (preferred) or a **replacement** value. From this, we build a clean R‑URI like `sip:<did>@<host>:<port>` and relay the call.
+
+---
+
+## 1) Call flow overview
+
+1. **Early gate for open‑relay**
+
+   * For requests not targeting our domains, we **only transit** if `dp_translate(1, ...)` matches for either `$rU` or `$tU`. Otherwise we 403.
+2. **INVITE entry point**
+
+   * On `INVITE`, the script drops into `route(DID_ROUTING)`.
+3. **Blacklist check**
+
+   * Before hitting dialplan, the called user `$rU` is checked via `check_blacklist("userblacklist")`; blacklisted numbers get `504` and an ACC log entry.
+4. **Select DID**
+
+   * DID is taken from `$tU` (To: username) if present, else `$rU`.
+5. **Dialplan match**
+
+   * We call `dp_translate(1, did, repl, attrs)`.
+   * If **no match** ⇒ `404 No route for DID`.
+6. **Build target**
+
+   * Preferred: parse `attrs` keys `host`, `port`, `proto`.
+   * Fallback: interpret `repl` as either a full `sip:` URI, a `host:port` pair, or just `host`.
+   * Default port ⇒ `5060`.
+7. **Finalize & relay**
+
+   * We set `R-URI = sip:<did>@<host>:<port>` and add helpful headers (`X-Orig-DID`, `Diversion`).
+   * Media handling (RTPProxy) is armed in `route[relay]` / `onreply_route[handle_nat]`.
+
+```
+REQ → route{} → (anti-relay via dp check) → INVITE → route(DID_ROUTING)
+     → blacklist? → DID selection → dp_translate(1, …)
+     → build R-URI from attrs|repl → route(relay)
+```
+
+---
+
+## 2) What your dialplan rules must return
+
+We use **DPID = 1**. Each rule can set either:
+
+### A) `attrs` (recommended)
+
+Return a semicolon-separated list:
+
+```
+attrs = "host=sbc01.example.local;port=5060;proto=udp"
+```
+
+Recognized keys:
+
+* `host` (required if using attrs)
+* `port` (optional; defaults to `5060`)
+* `proto` (optional; informational; URI transport param is **not** forced by default)
+
+### B) `repl` (fallback)
+
+Set one of:
+
+* A full **SIP URI**: `repl = "sip:sbc01.example.local:5060"` → used directly.
+* A **host:port** pair: `repl = "sbc01.example.local:5070"` → parsed into host/port.
+* A bare **host**: `repl = "sbc01.example.local"` → port defaults to `5060`.
+
+> If both `attrs` and `repl` are present, **attrs win** (we parse them first). If the resulting host is empty, we fail fast with `500 DP Misconfigured` and ACC note.
+
+---
+
+## 3) How the DID is chosen
+
+* Primary: `$tU` (To header’s username)
+* Fallback: `$rU` (R‑URI username)
+
+This lets you write dialplan rules against the number that users *see* in To:, while remaining resilient if To: is empty.
+
+---
+
+## 4) Anti‑relay guard using dialplan
+
+If a request targets a foreign domain (`!is_myself($rd)` and `!is_myself($fd)`), we will **only** allow transit when `dp_translate(1, $rU)` **or** `dp_translate(1, $tU)` returns a match. Otherwise we `403 Forbidden`. This means **dialplan itself is the allow‑list** for transit calls.
+
+**Implication:** ensure you have at least a permissive catch-all rule (or explicit patterns) for the ranges you intend to relay.
+
+---
+
+## 5) R‑URI construction & headers
+
+Once a rule matches, we:
+
+* Build `sip:<did>@<host>:<port>` (no transport param by default).
+* Add headers:
+
+  * `X-Orig-DID: <did>` (for downstream debugging)
+  * `Diversion: <sip:<did>@<orig_domain>>;reason=unconditional;…` (useful for PBX features / compliance)
+
+> You can uncomment the TLS/TCP transport bits if you want to append `;transport=` based on `attrs.proto`.
+
+---
+
+## 6) Accounting fields
+
+We record via `acc` with these **extra fields**:
+
+* `src_ip` – source IP (`$si`)
+* `dst_ip` – chosen target host
+* `agent` – `$rU` at INVITE time
+* `prefix` – derived from `$rU` length (10/12/13/14 digits → 0/2/3/4-digit prefix)
+* `carrier` – defaults to `"Undefined"` (set it from dialplan if needed)
+
+You can enrich `carrier` using `attrs` (e.g., `carrier=hcvn_core`) and map it in script before relay.
+
+---
+
+## 7) Blacklist integration
+
+Before dialplan evaluation, we call `check_blacklist("userblacklist")` on `$rU`.
+
+* Match ⇒ `504 Blacklisted` + `acc_db_request("Blacklisted", "acc")`.
+* Miss ⇒ continue.
+
+Ensure your `userblacklist` table contains the formats you intend to block (exact numbers, prefixes via patterns, etc.).
+
+---
+
+## 8) Authoring dialplan rules (DB schema & examples)
+
+OpenSIPS’s default `dialplan` table (PostgreSQL) includes fields like:
+
+* `dpid`, `pr` (priority), `match_op`, `match_exp`, `subst_exp`, `repl_exp`, `attrs`
+
+### Example 1 – Route a 10‑digit DID to SBC A
+
+```
+dpid=1  pr=10  match_op=4  match_exp=^\d{10}$  repl_exp=  attrs=host=sbc-a.local;port=5060
+```
+
+### Example 2 – Specific range to SBC B on 5070
+
+```
+dpid=1  pr=20  match_op=4  match_exp=^089\d{7}$  attrs=host=sbc-b.local;port=5070;proto=udp
+```
+
+### Example 3 – Full SIP URI in repl
+
+```
+dpid=1  pr=30  match_op=4  match_exp=^0938269\d{3}$  repl_exp=sip:sbc-c.local:5062
+```
+
+> Prefer **attrs**—they are explicit and less error‑prone. Use priorities (`pr`) to order rules from most to least specific.
+
+---
+
+## 9) Operational commands
+
+* **Reload dialplan rules** (no restart):
+
+  ```sh
+  opensipsctl fifo dp_reload
+  ```
+* **Check that we matched dialplan**: look for log lines like
+
+  * `DP: in='<did>'  repl='[...]'  attrs='[...]'`
+  * `DP: building URI with host='…' port='…'`
+* **Common failure logs**
+
+  * `DP: no match for DID='…'` → add/adjust a rule.
+  * `DP matched but host is empty` → fix your rule to return `attrs.host` or a valid `repl`.
+
+> Increase `log_level` temporarily if you need more verbosity during testing.
+
+---
+
+## 10) Testing tips
+
+* **Basic reachability**
+
+  ```sh
+  sipsak -s sip:0123456789@<your-opensips-ip> -v
+  ```
+* **SIP OPTIONS** (check path through relay target once dialplan is set to return a full SIP URI):
+
+  ```sh
+  sipsak -s sip:0123456789@<your-opensips-ip> --method OPTIONS -v
+  ```
+* **NAT / RTP**
+  Ensure `rtpproxy` is reachable and `rtpproxy_sock` matches your deployment. Watch for `RTPProxy offer/answer engaged` lines.
+
+---
+
+## 11) Security considerations
+
+* Dialplan is used as the **allow‑list** for transit; keep it tight. Avoid overly broad catch‑alls unless you control upstreams.
+* Maintain the `userblacklist` table regularly.
+* Consider enabling IP allow‑listing via the `permissions` module (`address` table) *in addition* to dialplan gating.
+
+---
+
+## 12) Locale & encoding
+
+If your surrounding tooling (importers/exporters, UI, etc.) needs explicit locale/encoding, keep these environment variables documented and consistent:
+
+* `CC_LANG` – e.g., `en_US.UTF-8` or `vi_VN.UTF-8`
+* `CC_ENCODING` – e.g., `UTF-8`
+
+These do **not** affect OpenSIPS routing itself but help keep auxiliary scripts and data pipelines (e.g., dialplan loaders) consistent.
+
+---
+
+## 13) FAQ
+
+**Q: What happens if my rule returns both `attrs` and a `repl`?**
+A: We parse `attrs` first and only fall back to `repl` if `attrs.host` is empty.
+
+**Q: Can I direct some ranges to TCP/TLS?**
+A: Yes—set `proto=tcp|tls` in `attrs` and enable the lines that append `;transport=` when building the R‑URI.
+
+**Q: I need different policy for `$rU` vs `$tU`.**
+A: Create separate rule sets or patterns and check in script before calling `dp_translate`; or encode the intent in `attrs` (e.g., `policy=to_user`) and branch accordingly.
+
+---
+
+## 14) Change safely
+
+1. Create/update rules in DB (DPID=1).
+2. `opensipsctl fifo dp_reload`.
+3. Test with a non‑critical DID first.
+4. Watch logs and ACC table for `carrier`, `prefix`, `src_ip`, `dst_ip`.
+
+---
+
+### Appendix: Minimal rule cookbook
+
+* **Send everything starting 089** → `attrs=host=sbc-b.local;port=5070`.
+* **Send 10‑digit numbers to SBC‑A** → `attrs=host=sbc-a.local`.
+* **Special DID 19001234 to a full SIP URI** → `repl=sip:special-gw.local:5080`.
+
+> When in doubt, prefer `attrs` and keep patterns as specific as possible.
