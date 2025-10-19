@@ -82,17 +82,14 @@ ALTER ROLE "$POSTGRES_USER" WITH PASSWORD '${PW_ESC}';
 EOSQL
 
   # --- Ensure database exists and is owned by POSTGRES_USER ---
-  gosu postgres psql --set ON_ERROR_STOP=1 --username postgres --no-password <<EOSQL
-DO \$\$
-BEGIN
-  IF NOT EXISTS (SELECT 1 FROM pg_database WHERE datname = '$POSTGRES_DB') THEN
-    CREATE DATABASE "$POSTGRES_DB" OWNER "$POSTGRES_USER";
-  ELSE
-    ALTER DATABASE "$POSTGRES_DB" OWNER TO "$POSTGRES_USER";
-  END IF;
-END
-\$\$;
-EOSQL
+  if ! gosu postgres psql -Atqc "SELECT 1 FROM pg_database WHERE datname='${POSTGRES_DB}'" | grep -q 1; then
+    echo "Creating database ${POSTGRES_DB} owned by ${POSTGRES_USER}"
+    gosu postgres createdb -O "${POSTGRES_USER}" "${POSTGRES_DB}"
+  else
+    echo "Database ${POSTGRES_DB} exists; ensuring owner=${POSTGRES_USER}"
+    gosu postgres psql -v ON_ERROR_STOP=1 -U postgres -c \
+      "ALTER DATABASE \"${POSTGRES_DB}\" OWNER TO \"${POSTGRES_USER}\""
+  fi
 
   # Run user-provided initialization scripts (top-level only, sorted)
   if [ -d "$POSTGRES_INIT_SCRIPTS_DIR" ]; then
