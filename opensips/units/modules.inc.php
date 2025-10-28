@@ -52,6 +52,10 @@ $config_modules 	= array (
 		"name"		=> "System",
 		"icon"		=> "images/icon-system.svg",
 		"modules"	=> array (
+			"addresses"			=> array (
+				"enabled"		=> true,
+				"name"			=> "Addresses"
+			),
 			"cdrviewer"			=> array (
 				"enabled"		=> true,
 				"name"			=> "CDR Viewer"
