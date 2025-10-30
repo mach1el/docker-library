@@ -47,10 +47,10 @@ $config_modules = array (
         "enabled"               => true,
         "name"                  => "Dialog"
       ),
-      "loadbalancer"                  => array (
-        "enabled"               => true,
-        "name"                  => "Load Balancer"
-      ),
+      "dialplan"			=> array (
+				"enabled"		=> true,
+				"name"			=> "Dialplan"
+			),
       "mi"                       => array (
         "enabled"               => true,
         "name"                  => "MI Commands"
