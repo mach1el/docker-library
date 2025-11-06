@@ -1,67 +1,376 @@
 #!/bin/bash
 
-set -m
+set -euo pipefail
 
+# Logging functions
+log_info() {
+  echo "[$(date '+%Y-%m-%d %H:%M:%S')][INFO] $*"
+}
+
+log_error() {
+  echo "[$(date '+%Y-%m-%d %H:%M:%S')][ERROR] $*" >&2
+}
+
+log_warn() {
+  echo "[$(date '+%Y-%m-%d %H:%M:%S')][WARN] $*" >&2
+}
+
+# Check if Java runtime is available
 check_runtime() {
-  java -version
-  if [[ $? -ne 0 ]]; then
-    echo "[$(date '+%d/%m/%Y %H:%M:%S')][ERROR] Missing java"
-    exit "500"
+  log_info "Checking Java runtime..."
+  if ! command -v java &> /dev/null; then
+    log_error "Java runtime not found"
+    exit 1
   fi
+  
+  local java_version
+  java_version=$(java -version 2>&1 | head -n 1)
+  log_info "Java runtime detected: ${java_version}"
 }
 
-modify_listeners() {
-  if [ -n "$KAFKA_LISTENERS" ]; then
-    echo "[$(date '+%d/%m/%Y %H:%M:%S')][INFO] Setting Kafka listeners to $KAFKA_LISTENERS"
-    sed -i '/^#.*listeners=PLAINTEXT:\/\/:9092/s/^#//' $KAFKA_CONF/server.properties
-    sed -i "s~listeners=PLAINTEXT://:9092~listeners=$KAFKA_LISTENERS~" $KAFKA_CONF/server.properties
-  fi
-
-  if [ -n "$KAFKA_ADVERTISED_LISTENERS" ]; then
-    echo "[$(date '+%d/%m/%Y %H:%M:%S')][INFO] Setting Kafka advertised.listeners to $KAFKA_ADVERTISED_LISTENERS"
-    sed -i '/^#.*advertised.listeners=PLAINTEXT:\/\/your.host.name:9092/s/^#//' $KAFKA_CONF/server.properties
-    sed -i "s~advertised.listeners=PLAINTEXT:\/\/your.host.name:9092~advertised.listeners=$KAFKA_ADVERTISED_LISTENERS~" $KAFKA_CONF/server.properties
-  fi
-
-  if [ -n "$KAFKA_ZOOKEEPER_CONNECT" ]; then
-    echo "[$(date '+%d/%m/%Y %H:%M:%S')][INFO] Setting Kafka zookeeper.connect to $KAFKA_ZOOKEEPER_CONNECT"
-    sed -i "s/zookeeper.connect=localhost:2181/zookeeper.connect=$KAFKA_ZOOKEEPER_CONNECT/g" $KAFKA_CONF/server.properties
-  fi
-}
-
-start_server() {
-  check_runtime
-  modify_listeners
+# Validate required environment variables
+validate_environment() {
+  local required_vars=("KAFKA_CONF" "KAFKA_BIN" "KAFKA_DATA")
+  local missing_vars=()
   
-  if [[ -n "$KAFKA_HEAP_OPTS" ]]; then
-    export JAVA_TOOL_OPTIONS="${JAVA_TOOL_OPTIONS} ${KAFKA_HEAP_OPTS}"
-  fi
-  
-  echo "[$(date '+%d/%m/%Y %H:%M:%S')][INFO] Modify the Kafka log path to $KAFKA_DATA/kafka-logs"
-  sed -i "s|log.dirs=.*|log.dirs=${KAFKA_DATA}/kafka-logs|" "$KAFKA_CONF/server.properties"
-  
-  if [[ ! -f "$KAFKA_DATA/kafka-logs/meta.properties" ]]; then
-    echo ">>> Format Log Directories <<<"
-    if [[ -z "$KAFKA_CLUSTER_ID" ]]; then
-      echo "[$(date '+%d/%m/%Y %H:%M:%S')][INFO] Generate a Cluster UUID"
-      if [[ "$(id -u)" == "0" ]]; then
-        export KAFKA_CLUSTER_ID="$(${KAFKA_BIN}/kafka-storage.sh random-uuid)"
-      else
-        su -l mich43l -c 'export KAFKA_CLUSTER_ID="$(${KAFKA_BIN}/kafka-storage.sh random-uuid)"'
-      fi
+  for var in "${required_vars[@]}"; do
+    if [[ -z "${!var:-}" ]]; then
+      missing_vars+=("$var")
     fi
-    echo "[$(date '+%d/%m/%Y %H:%M:%S')][INFO] Set the new Cluster UUID"
-    if [[ "$(id -u)" == "0" ]]; then
-      su -l mich43l -c '${KAFKA_BIN}/kafka-storage.sh format -t ${KAFKA_CLUSTER_ID} -c ${KAFKA_CONF}/server.properties'
-    else
-      ${KAFKA_BIN}/kafka-storage.sh format -t $KAFKA_CLUSTER_ID -c "$KAFKA_CONF/server.properties"
+  done
+  
+  if [[ ${#missing_vars[@]} -gt 0 ]]; then
+    log_error "Missing required environment variables: ${missing_vars[*]}"
+    exit 1
+  fi
+  
+  # Verify paths exist
+  if [[ ! -d "$KAFKA_CONF" ]]; then
+    log_error "Kafka config directory not found: $KAFKA_CONF"
+    exit 1
+  fi
+  
+  if [[ ! -f "$KAFKA_CONF/server.properties" ]]; then
+    log_error "server.properties not found in $KAFKA_CONF"
+    exit 1
+  fi
+}
+
+# Detect Kafka mode (KRaft or Zookeeper)
+detect_kafka_mode() {
+  # Check if using Zookeeper mode
+  if [[ -n "${KAFKA_ZOOKEEPER_CONNECT:-}" ]]; then
+    KAFKA_MODE="zookeeper"
+    log_info "Detected Zookeeper mode"
+  # Check if KRaft configuration is present
+  elif [[ -n "${KAFKA_NODE_ID:-}" ]] || [[ -n "${KAFKA_CLUSTER_ID:-}" ]] || [[ -n "${KAFKA_CONTROLLER_QUORUM_VOTERS:-}" ]]; then
+    KAFKA_MODE="kraft"
+    log_info "Detected KRaft mode"
+  else
+    # Default to Zookeeper if nothing specified
+    KAFKA_MODE="zookeeper"
+    log_warn "No mode detected, defaulting to Zookeeper mode. Set KAFKA_ZOOKEEPER_CONNECT or KRaft variables."
+  fi
+}
+
+# Backup original configuration
+backup_config() {
+  local backup_file="${KAFKA_CONF}/server.properties.backup"
+  if [[ ! -f "$backup_file" ]]; then
+    log_info "Creating backup of server.properties"
+    cp "${KAFKA_CONF}/server.properties" "$backup_file"
+  fi
+}
+
+# Modify Kafka listeners configuration
+modify_listeners() {
+  local config_file="${KAFKA_CONF}/server.properties"
+  
+  if [[ -n "${KAFKA_LISTENERS:-}" ]]; then
+    log_info "Setting listeners to: $KAFKA_LISTENERS"
+    if grep -q "^#.*listeners=" "$config_file"; then
+      sed -i '/^#.*listeners=/s/^#//' "$config_file"
+    fi
+    sed -i "s|^listeners=.*|listeners=$KAFKA_LISTENERS|" "$config_file"
+    # Add if not exists
+    if ! grep -q "^listeners=" "$config_file"; then
+      echo "listeners=$KAFKA_LISTENERS" >> "$config_file"
+    fi
+  fi
+
+  if [[ -n "${KAFKA_ADVERTISED_LISTENERS:-}" ]]; then
+    log_info "Setting advertised.listeners to: $KAFKA_ADVERTISED_LISTENERS"
+    if grep -q "^#.*advertised.listeners=" "$config_file"; then
+      sed -i '/^#.*advertised.listeners=/s/^#//' "$config_file"
+    fi
+    sed -i "s|^advertised.listeners=.*|advertised.listeners=$KAFKA_ADVERTISED_LISTENERS|" "$config_file"
+    # Add if not exists
+    if ! grep -q "^advertised.listeners=" "$config_file"; then
+      echo "advertised.listeners=$KAFKA_ADVERTISED_LISTENERS" >> "$config_file"
+    fi
+  fi
+}
+
+# Configure Zookeeper mode
+configure_zookeeper_mode() {
+  local config_file="${KAFKA_CONF}/server.properties"
+  
+  log_info "Configuring Zookeeper mode"
+  
+  if [[ -n "${KAFKA_ZOOKEEPER_CONNECT:-}" ]]; then
+    log_info "Setting zookeeper.connect to: $KAFKA_ZOOKEEPER_CONNECT"
+    sed -i "s|^zookeeper.connect=.*|zookeeper.connect=$KAFKA_ZOOKEEPER_CONNECT|" "$config_file"
+    if ! grep -q "^zookeeper.connect=" "$config_file"; then
+      echo "zookeeper.connect=$KAFKA_ZOOKEEPER_CONNECT" >> "$config_file"
+    fi
+  fi
+  
+  # Remove KRaft-specific settings if present
+  sed -i '/^process.roles=/d' "$config_file"
+  sed -i '/^node.id=/d' "$config_file"
+  sed -i '/^controller.quorum.voters=/d' "$config_file"
+  sed -i '/^controller.listener.names=/d' "$config_file"
+}
+
+# Configure KRaft mode
+configure_kraft_mode() {
+  local config_file="${KAFKA_CONF}/server.properties"
+  
+  log_info "Configuring KRaft mode"
+  
+  # Remove Zookeeper setting
+  sed -i '/^zookeeper.connect=/d' "$config_file"
+  
+  # Set node ID
+  if [[ -n "${KAFKA_NODE_ID:-}" ]]; then
+    log_info "Setting node.id to: $KAFKA_NODE_ID"
+    sed -i "s|^node.id=.*|node.id=$KAFKA_NODE_ID|" "$config_file"
+    if ! grep -q "^node.id=" "$config_file"; then
+      echo "node.id=$KAFKA_NODE_ID" >> "$config_file"
     fi
   else
-    echo "[$(date '+%d/%m/%Y %H:%M:%S')][INFO] Remove the old meta.properties"
-    rm -rf "$KAFKA_DATA/kafka-logs/meta.properties"
+    log_error "KAFKA_NODE_ID must be set for KRaft mode"
+    exit 1
   fi
   
-  exec gosu mich43l bash -l -c '${KAFKA_BIN}/kafka-server-start.sh ${KAFKA_CONF}/server.properties'
+  # Set process roles (default: broker,controller for single-node)
+  if [[ -n "${KAFKA_PROCESS_ROLES:-}" ]]; then
+    log_info "Setting process.roles to: $KAFKA_PROCESS_ROLES"
+    sed -i "s|^process.roles=.*|process.roles=$KAFKA_PROCESS_ROLES|" "$config_file"
+    if ! grep -q "^process.roles=" "$config_file"; then
+      echo "process.roles=$KAFKA_PROCESS_ROLES" >> "$config_file"
+    fi
+  else
+    # Default to combined mode
+    log_info "Setting process.roles to: broker,controller (default)"
+    sed -i "s|^process.roles=.*|process.roles=broker,controller|" "$config_file"
+    if ! grep -q "^process.roles=" "$config_file"; then
+      echo "process.roles=broker,controller" >> "$config_file"
+    fi
+  fi
+  
+  # Set controller quorum voters
+  if [[ -n "${KAFKA_CONTROLLER_QUORUM_VOTERS:-}" ]]; then
+    log_info "Setting controller.quorum.voters to: $KAFKA_CONTROLLER_QUORUM_VOTERS"
+    sed -i "s|^controller.quorum.voters=.*|controller.quorum.voters=$KAFKA_CONTROLLER_QUORUM_VOTERS|" "$config_file"
+    if ! grep -q "^controller.quorum.voters=" "$config_file"; then
+      echo "controller.quorum.voters=$KAFKA_CONTROLLER_QUORUM_VOTERS" >> "$config_file"
+    fi
+  else
+    # Default for single-node setup
+    local node_id="${KAFKA_NODE_ID:-1}"
+    log_info "Setting controller.quorum.voters to: ${node_id}@localhost:9093 (default)"
+    sed -i "s|^controller.quorum.voters=.*|controller.quorum.voters=${node_id}@localhost:9093|" "$config_file"
+    if ! grep -q "^controller.quorum.voters=" "$config_file"; then
+      echo "controller.quorum.voters=${node_id}@localhost:9093" >> "$config_file"
+    fi
+  fi
+  
+  # Set controller listener names
+  if [[ -n "${KAFKA_CONTROLLER_LISTENER_NAMES:-}" ]]; then
+    log_info "Setting controller.listener.names to: $KAFKA_CONTROLLER_LISTENER_NAMES"
+    sed -i "s|^controller.listener.names=.*|controller.listener.names=$KAFKA_CONTROLLER_LISTENER_NAMES|" "$config_file"
+    if ! grep -q "^controller.listener.names=" "$config_file"; then
+      echo "controller.listener.names=$KAFKA_CONTROLLER_LISTENER_NAMES" >> "$config_file"
+    fi
+  else
+    log_info "Setting controller.listener.names to: CONTROLLER (default)"
+    sed -i "s|^controller.listener.names=.*|controller.listener.names=CONTROLLER|" "$config_file"
+    if ! grep -q "^controller.listener.names=" "$config_file"; then
+      echo "controller.listener.names=CONTROLLER" >> "$config_file"
+    fi
+  fi
+  
+  # Ensure listeners include CONTROLLER for KRaft
+  if [[ -z "${KAFKA_LISTENERS:-}" ]]; then
+    log_info "Setting default KRaft listeners: PLAINTEXT://0.0.0.0:9092,CONTROLLER://0.0.0.0:9093"
+    KAFKA_LISTENERS="PLAINTEXT://0.0.0.0:9092,CONTROLLER://0.0.0.0:9093"
+    sed -i "s|^listeners=.*|listeners=$KAFKA_LISTENERS|" "$config_file"
+    if ! grep -q "^listeners=" "$config_file"; then
+      echo "listeners=$KAFKA_LISTENERS" >> "$config_file"
+    fi
+  fi
+  
+  # Set listener security protocol map
+  if [[ -n "${KAFKA_LISTENER_SECURITY_PROTOCOL_MAP:-}" ]]; then
+    log_info "Setting listener.security.protocol.map to: $KAFKA_LISTENER_SECURITY_PROTOCOL_MAP"
+    sed -i "s|^listener.security.protocol.map=.*|listener.security.protocol.map=$KAFKA_LISTENER_SECURITY_PROTOCOL_MAP|" "$config_file"
+    if ! grep -q "^listener.security.protocol.map=" "$config_file"; then
+      echo "listener.security.protocol.map=$KAFKA_LISTENER_SECURITY_PROTOCOL_MAP" >> "$config_file"
+    fi
+  else
+    log_info "Setting listener.security.protocol.map to: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT (default)"
+    sed -i "s|^listener.security.protocol.map=.*|listener.security.protocol.map=CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT|" "$config_file"
+    if ! grep -q "^listener.security.protocol.map=" "$config_file"; then
+      echo "listener.security.protocol.map=CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT" >> "$config_file"
+    fi
+  fi
 }
 
-start_server
+# Configure additional Kafka properties
+configure_kafka_properties() {
+  local config_file="${KAFKA_CONF}/server.properties"
+  
+  # Set log directories
+  log_info "Setting log directories to: ${KAFKA_DATA}/kafka-logs"
+  sed -i "s|^log.dirs=.*|log.dirs=${KAFKA_DATA}/kafka-logs|" "$config_file"
+  if ! grep -q "^log.dirs=" "$config_file"; then
+    echo "log.dirs=${KAFKA_DATA}/kafka-logs" >> "$config_file"
+  fi
+  
+  # Create log directory if it doesn't exist
+  mkdir -p "${KAFKA_DATA}/kafka-logs"
+  chown -R mich43l:mich43l "${KAFKA_DATA}/kafka-logs" 2>/dev/null || true
+  
+  # Additional configurations
+  if [[ -n "${KAFKA_LOG_RETENTION_HOURS:-}" ]]; then
+    log_info "Setting log.retention.hours to: $KAFKA_LOG_RETENTION_HOURS"
+    sed -i "s|^log.retention.hours=.*|log.retention.hours=$KAFKA_LOG_RETENTION_HOURS|" "$config_file"
+    if ! grep -q "^log.retention.hours=" "$config_file"; then
+      echo "log.retention.hours=$KAFKA_LOG_RETENTION_HOURS" >> "$config_file"
+    fi
+  fi
+  
+  if [[ -n "${KAFKA_NUM_PARTITIONS:-}" ]]; then
+    log_info "Setting num.partitions to: $KAFKA_NUM_PARTITIONS"
+    sed -i "s|^num.partitions=.*|num.partitions=$KAFKA_NUM_PARTITIONS|" "$config_file"
+    if ! grep -q "^num.partitions=" "$config_file"; then
+      echo "num.partitions=$KAFKA_NUM_PARTITIONS" >> "$config_file"
+    fi
+  fi
+  
+  if [[ -n "${KAFKA_AUTO_CREATE_TOPICS:-}" ]]; then
+    log_info "Setting auto.create.topics.enable to: $KAFKA_AUTO_CREATE_TOPICS"
+    sed -i "s|^auto.create.topics.enable=.*|auto.create.topics.enable=$KAFKA_AUTO_CREATE_TOPICS|" "$config_file"
+    if ! grep -q "^auto.create.topics.enable=" "$config_file"; then
+      echo "auto.create.topics.enable=$KAFKA_AUTO_CREATE_TOPICS" >> "$config_file"
+    fi
+  fi
+}
+
+# Format storage for KRaft mode
+format_storage() {
+  local meta_properties="${KAFKA_DATA}/kafka-logs/meta.properties"
+  
+  if [[ -f "$meta_properties" ]]; then
+    log_info "Meta properties file exists, storage already formatted"
+    return 0
+  fi
+  
+  # Generate or use provided cluster ID
+  if [[ -z "${KAFKA_CLUSTER_ID:-}" ]]; then
+    log_info "Generating new Cluster UUID"
+    KAFKA_CLUSTER_ID=$(${KAFKA_BIN}/kafka-storage.sh random-uuid)
+    log_info "Generated Cluster ID: $KAFKA_CLUSTER_ID"
+  else
+    log_info "Using provided Cluster ID: $KAFKA_CLUSTER_ID"
+  fi
+  
+  # Format storage
+  log_info "Formatting log directories with Cluster ID: $KAFKA_CLUSTER_ID"
+  if [[ "$(id -u)" == "0" ]]; then
+    gosu mich43l ${KAFKA_BIN}/kafka-storage.sh format \
+      -t "$KAFKA_CLUSTER_ID" \
+      -c "${KAFKA_CONF}/server.properties"
+  else
+    ${KAFKA_BIN}/kafka-storage.sh format \
+      -t "$KAFKA_CLUSTER_ID" \
+      -c "${KAFKA_CONF}/server.properties"
+  fi
+}
+
+# Handle graceful shutdown
+setup_signal_handlers() {
+  log_info "Setting up signal handlers for graceful shutdown"
+  trap 'log_info "Received SIGTERM, shutting down gracefully..."; kill -TERM $KAFKA_PID 2>/dev/null; wait $KAFKA_PID' TERM
+  trap 'log_info "Received SIGINT, shutting down gracefully..."; kill -INT $KAFKA_PID 2>/dev/null; wait $KAFKA_PID' INT
+}
+
+# Start Kafka server
+start_server() {
+  check_runtime
+  validate_environment
+  detect_kafka_mode
+  backup_config
+  modify_listeners
+  
+  # Configure based on mode
+  if [[ "$KAFKA_MODE" == "kraft" ]]; then
+    configure_kraft_mode
+  else
+    configure_zookeeper_mode
+  fi
+  
+  configure_kafka_properties
+  
+  # Set heap options
+  if [[ -n "${KAFKA_HEAP_OPTS:-}" ]]; then
+    log_info "Setting heap options: $KAFKA_HEAP_OPTS"
+    export KAFKA_HEAP_OPTS
+  fi
+  
+  # Set JVM options
+  if [[ -n "${KAFKA_JVM_PERFORMANCE_OPTS:-}" ]]; then
+    log_info "Setting JVM performance options"
+    export KAFKA_JVM_PERFORMANCE_OPTS
+  fi
+  
+  # Format storage if in KRaft mode
+  if [[ "$KAFKA_MODE" == "kraft" ]]; then
+    format_storage
+  fi
+  
+  # Setup signal handlers
+  setup_signal_handlers
+  
+  log_info "Starting Kafka server in $KAFKA_MODE mode..."
+  log_info "Configuration file: ${KAFKA_CONF}/server.properties"
+  log_info "Data directory: ${KAFKA_DATA}/kafka-logs"
+  
+  # Start Kafka in the background to handle signals
+  if [[ "$(id -u)" == "0" ]]; then
+    gosu mich43l ${KAFKA_BIN}/kafka-server-start.sh "${KAFKA_CONF}/server.properties" &
+    KAFKA_PID=$!
+  else
+    ${KAFKA_BIN}/kafka-server-start.sh "${KAFKA_CONF}/server.properties" &
+    KAFKA_PID=$!
+  fi
+  
+  log_info "Kafka server started with PID: $KAFKA_PID"
+  
+  # Wait for Kafka process
+  wait $KAFKA_PID
+  local exit_code=$?
+  
+  log_info "Kafka server stopped with exit code: $exit_code"
+  exit $exit_code
+}
+
+# Main execution
+main() {
+  log_info "=== Kafka Container Entrypoint ==="
+  log_info "Starting Kafka initialization..."
+  start_server
+}
+
+main "$@"
