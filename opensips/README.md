@@ -101,15 +101,18 @@ This Dockerfile builds a containerized environment for the OpenSIPS Control Pane
 ## Environment Variables
 The following environment variables are used to configure OpenSIPS-CP:
 
-| Variable       | Default Value | Description |
-|---------------|--------------|-------------|
-| `DB_DRIVER`   | `pgsql`      | Database driver to use |
-| `PG_HOST`     | `localhost`  | PostgreSQL host |
-| `PG_PORT`     | `5432`       | PostgreSQL port |
-| `PG_USER`     | `opensips`   | Database user |
-| `PG_PASSWORD` | `opensipsrw` | Database password |
-| `PG_DATABASE` | `opensips`   | OpenSIPS database name |
-| `OPENSIPS_IP` | `127.0.0.1`  | OpenSIPS instance IP address |
+| Variable            | Default Value | Description                               |
+|---------------------|--------------|--------------------------------------------|
+| `DB_DRIVER`         | `pgsql`      | Database driver to use                     |
+| `PG_HOST`           | `localhost`  | PostgreSQL host                            |
+| `PG_PORT`           | `5432`       | PostgreSQL port                            |
+| `PG_USER`           | `opensips`   | Database user                              |
+| `PG_PASSWORD`       | `opensipsrw` | Database password                          |
+| `PG_DATABASE`       | `opensips`   | OpenSIPS database name                     |
+| `OPENSIPS_IP`       | `127.0.0.1`  | OpenSIPS instance IP address               |
+| `OPENSIPS_SHM_SIZE` | `256`        | OpenSIPS shared memory size in MB (`-m`)   |
+| `OPENSIPS_PKG_SIZE` | `64`         | OpenSIPS private/pkg memory size in MB (`-M`) |
+
 
 ## Building the Docker Image
 To build the container image:
