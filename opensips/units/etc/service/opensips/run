@@ -1,4 +1,7 @@
 #!/bin/bash
 set -m
 
-/usr/sbin/opensips -f ${OPENSIPS_CFG} -F
+SHM_SIZE="${OPENSIPS_SHM_SIZE:-256}"
+PKG_SIZE="${OPENSIPS_PKG_SIZE:-64}"
+
+exec opensips -f ${OPENSIPS_CFG} -F -m "$SHM_SIZE" -M "$PKG_SIZE"
