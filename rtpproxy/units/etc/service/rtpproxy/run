@@ -4,23 +4,163 @@ set -e
 set -o pipefail
 
 init_vars() {
+  TARGET_CC=${TARGET_CC:-2000}
   RTPPROXY_LISTEN_HOST=${RTPPROXY_LISTEN_HOST:-"0.0.0.0"}
-  RTPPROXY_CTRL_SOCKET=${RTPPROXY_CTRL_SOCKET:-"udp:*:7890"}
-  RTPRPOXY_NOFILE_LIMIT=${RTPRPOXY_NOFILE_LIMIT:-500000}
-  RTPPROXY_MIN_PORT=${RTPPROXY_MIN_PORT:-10000}
-  RTPPROXY_MAX_PORT=${RTPPROXY_MAX_PORT:-65000}
-  RTPPROXY_LOG_LEVEL=${RTPPROXY_LOG_LEVEL:-"INFO:LOG_LOCAL5"}
-  local cmd="$RTPPROXY_BIN -RFf -l $RTPPROXY_LISTEN_HOST -s $RTPPROXY_CTRL_SOCKET -L $RTPRPOXY_NOFILE_LIMIT -m $RTPPROXY_MIN_PORT -M $RTPPROXY_MAX_PORT -r /var/lib/rtpproxy-recording -S /var/spool/rtpproxy"
-  RTPPROXY_CMD=${RTPPROXY_CMD:-"$cmd"}
+  RTPPROXY_NOFILE_LIMIT=${RTPPROXY_NOFILE_LIMIT:-500000}
+  RTPPROXY_LOG_LEVEL=${RTPPROXY_LOG_LEVEL:-"DBUG:LOG_LOCAL5"}  # Debug level
+  RTPPROXY_RECORDING_DIR=${RTPPROXY_RECORDING_DIR:-"/var/lib/rtpproxy-recording"}
+  RTPPROXY_SPOOL_DIR=${RTPPROXY_SPOOL_DIR:-"/var/spool/rtpproxy"}
+  RTPPROXY_BASE_PORT=${RTPPROXY_BASE_PORT:-7890}
+  RTPPROXY_STREAMS_PER_INSTANCE=${RTPPROXY_STREAMS_PER_INSTANCE:-800}
+  RTPPROXY_RTP_PORT_BLOCK=${RTPPROXY_RTP_PORT_BLOCK:-10000}
+  RTPPROXY_RTP_START_PORT=${RTPPROXY_RTP_START_PORT:-10000}
+  
+  INSTANCE_COUNT=$(( (TARGET_CC * 2 / RTPPROXY_STREAMS_PER_INSTANCE) + 1 ))
+  [ "$INSTANCE_COUNT" -gt 12 ] && INSTANCE_COUNT=12
+  [ "$INSTANCE_COUNT" -lt 1 ] && INSTANCE_COUNT=1
+}
+
+ensure_dirs() {
+  mkdir -p "$RTPPROXY_RECORDING_DIR" "$RTPPROXY_SPOOL_DIR"
+  chmod 755 "$RTPPROXY_RECORDING_DIR" "$RTPPROXY_SPOOL_DIR"
+}
+
+check_port_available() {
+  local port=$1
+  if ss -uln | grep -q ":${port} "; then
+    echo "ERROR: Port $port already in use!"
+    return 1
+  fi
+  return 0
+}
+
+start_single_instance() {
+  local ctrl_socket=${RTPPROXY_CTRL_SOCKET:-"udp:*:${RTPPROXY_BASE_PORT}"}
+  local min_port=${RTPPROXY_MIN_PORT:-10000}
+  local max_port=${RTPPROXY_MAX_PORT:-65000}
+  
+  echo "Starting single RTPProxy instance..."
+  echo "  Ctrl socket: $ctrl_socket"
+  echo "  RTP ports:   $min_port - $max_port"
+  echo "  Listen:      $RTPPROXY_LISTEN_HOST"
+  
+  # Run in foreground with full debug output
+  exec $RTPPROXY_BIN -f \
+    -l "$RTPPROXY_LISTEN_HOST" \
+    -s "$ctrl_socket" \
+    -L "$RTPPROXY_NOFILE_LIMIT" \
+    -m "$min_port" \
+    -M "$max_port" \
+    -r "$RTPPROXY_RECORDING_DIR" \
+    -S "$RTPPROXY_SPOOL_DIR" \
+    -d "$RTPPROXY_LOG_LEVEL"
+}
+
+start_multi_instance() {
+  echo "Starting $INSTANCE_COUNT RTPProxy instances..."
+  
+  local pids=()
+  
+  for i in $(seq 0 $((INSTANCE_COUNT - 1))); do
+    local ctrl_port=$((RTPPROXY_BASE_PORT + i))
+    local min_port=$((RTPPROXY_RTP_START_PORT + (i * RTPPROXY_RTP_PORT_BLOCK)))
+    local max_port=$((min_port + RTPPROXY_RTP_PORT_BLOCK - 1))
+    local spool_dir="${RTPPROXY_SPOOL_DIR}/instance-${i}"
+    
+    # Check port availability
+    if ! check_port_available "$ctrl_port"; then
+      echo "FATAL: Control port $ctrl_port unavailable"
+      exit 1
+    fi
+    
+    mkdir -p "$spool_dir"
+    chmod 755 "$spool_dir"
+    
+    echo "  Instance $i: ctrl=udp:*:${ctrl_port}, RTP=${min_port}-${max_port}"
+    
+    # Note: removed -R flag, using -f for foreground
+    $RTPPROXY_BIN -f \
+      -l "$RTPPROXY_LISTEN_HOST" \
+      -s "udp:*:${ctrl_port}" \
+      -L "$RTPPROXY_NOFILE_LIMIT" \
+      -m "$min_port" \
+      -M "$max_port" \
+      -r "$RTPPROXY_RECORDING_DIR" \
+      -S "$spool_dir" \
+      -d "$RTPPROXY_LOG_LEVEL" 2>&1 | sed "s/^/[rtpproxy-$i] /" &
+    
+    pids+=($!)
+    
+    # Small delay to prevent race conditions
+    sleep 0.5
+    
+    # Verify it started
+    if ! kill -0 "${pids[-1]}" 2>/dev/null; then
+      echo "ERROR: Instance $i failed to start!"
+      echo "Check logs above for details"
+      kill "${pids[@]}" 2>/dev/null || true
+      exit 1
+    fi
+  done
+  
+  echo ""
+  echo "All $INSTANCE_COUNT instances started successfully"
+  echo ""
+  
+  # Trap signals
+  trap 'echo "Shutting down..."; kill ${pids[@]} 2>/dev/null; exit 0' SIGTERM SIGINT
+  
+  # Monitor instances
+  while true; do
+    for idx in "${!pids[@]}"; do
+      pid="${pids[$idx]}"
+      if ! kill -0 "$pid" 2>/dev/null; then
+        echo "ERROR: RTPProxy instance $idx (PID $pid) died unexpectedly"
+        # Don't exit immediately - wait for others to log their errors
+        sleep 2
+        kill "${pids[@]}" 2>/dev/null || true
+        exit 1
+      fi
+    done
+    sleep 5
+  done
 }
 
 main() {
-  if [ -z $RTPPROXY_PARAM ]; then
-    init_vars
-  else
-    RTPPROXY_CMD="$RTPPROXY_BIN $RTPPROXY_PARAM"
+  echo "=== RTPProxy Startup ==="
+  echo "RTPPROXY_BIN: ${RTPPROXY_BIN:-rtpproxy}"
+  
+  # Verify binary exists
+  if ! command -v "${RTPPROXY_BIN:-rtpproxy}" &>/dev/null; then
+    echo "ERROR: rtpproxy binary not found!"
+    exit 1
   fi
-  exec $RTPPROXY_CMD
+  
+  # Show version
+  ${RTPPROXY_BIN:-rtpproxy} -V 2>&1 || true
+  echo ""
+  
+  if [ -n "$RTPPROXY_PARAM" ]; then
+    echo "Using custom RTPPROXY_PARAM: $RTPPROXY_PARAM"
+    exec $RTPPROXY_BIN $RTPPROXY_PARAM
+  fi
+  
+  init_vars
+  ensure_dirs
+  
+  echo "Configuration:"
+  echo "  TARGET_CC:      $TARGET_CC"
+  echo "  INSTANCE_COUNT: $INSTANCE_COUNT"
+  echo "  LISTEN_HOST:    $RTPPROXY_LISTEN_HOST"
+  echo "  RECORDING_DIR:  $RTPPROXY_RECORDING_DIR"
+  echo "  SPOOL_DIR:      $RTPPROXY_SPOOL_DIR"
+  echo ""
+  
+  if [ "$INSTANCE_COUNT" -eq 1 ] || [ "${RTPPROXY_SINGLE_INSTANCE:-false}" = "true" ]; then
+    start_single_instance
+  else
+    start_multi_instance
+  fi
 }
 
-main
+main "$@"
